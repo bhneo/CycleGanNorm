@@ -26,7 +26,6 @@ __all__ = ['iterative_normalization', 'IterNorm']
 #         grad_input = bcnn.iterative_normalization_backward(grad, ctx.saved_variables)
 #         return grad_input, None, None, None, None, None, None, None
 
-
 class iterative_normalization_py(torch.autograd.Function):
     @staticmethod
     def forward(ctx, *args, **kwargs):
