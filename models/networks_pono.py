@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
+from nomalization import iterative_normalization
 
 
 ###############################################################################
@@ -15,7 +16,7 @@ class Identity(nn.Module):
         return x
 
 
-def get_norm_layer(norm_type='instance'):
+def get_norm_layer(norm_type='instance', t=5):
     """Return a normalization layer
 
     Parameters:
@@ -28,6 +29,8 @@ def get_norm_layer(norm_type='instance'):
         norm_layer = functools.partial(nn.BatchNorm2d, affine=True, track_running_stats=True)
     elif norm_type == 'instance':
         norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
+    elif norm_type == 'iter_norm':
+        norm_layer = functools.partial(iterative_normalization.IterNorm, T=t)
     elif norm_type == 'none':
         def norm_layer(x): return Identity()
     else:
@@ -116,7 +119,7 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
     return net
 
 
-def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[]):
+def define_G(input_nc, output_nc, ngf, netG, norm='batch', t=5, use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[]):
     """Create a generator
 
     Parameters:
@@ -144,7 +147,7 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     The generator has been initialized by <init_net>. It uses RELU for non-linearity.
     """
     net = None
-    norm_layer = get_norm_layer(norm_type=norm)
+    norm_layer = get_norm_layer(norm_type=norm, t=t)
 
     if netG == 'resnet_9blocks':
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
@@ -163,7 +166,7 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     return init_net(net, init_type, init_gain, gpu_ids)
 
 
-def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal', init_gain=0.02, gpu_ids=[]):
+def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', t=5, init_type='normal', init_gain=0.02, gpu_ids=[]):
     """Create a discriminator
 
     Parameters:
@@ -194,7 +197,7 @@ def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal'
     The discriminator has been initialized by <init_net>. It uses Leakly RELU for non-linearity.
     """
     net = None
-    norm_layer = get_norm_layer(norm_type=norm)
+    norm_layer = get_norm_layer(norm_type=norm, t=t)
 
     if netD == 'basic':  # default PatchGAN classifier
         net = NLayerDiscriminator(input_nc, ndf, n_layers=3, norm_layer=norm_layer)

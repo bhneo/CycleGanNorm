@@ -7,24 +7,7 @@ Reference:  Iterative Normalization: Beyond Standardization towards Efficient Wh
 import torch.nn
 from torch.nn import Parameter
 
-# import extension._bcnn as bcnn
-
 __all__ = ['iterative_normalization_FlexGroup', 'IterNorm']
-
-
-#
-# class iterative_normalization(torch.autograd.Function):
-#     @staticmethod
-#     def forward(ctx, *inputs):
-#         result = bcnn.iterative_normalization_forward(*inputs)
-#         ctx.save_for_backward(*result[:-1])
-#         return result[-1]
-#
-#     @staticmethod
-#     def backward(ctx, *grad_outputs):
-#         grad, = grad_outputs
-#         grad_input = bcnn.iterative_normalization_backward(grad, ctx.saved_variables)
-#         return grad_input, None, None, None, None, None, None, None
 
 
 class iterative_normalization_py(torch.autograd.Function):
@@ -69,7 +52,6 @@ class iterative_normalization_py(torch.autograd.Function):
     @staticmethod
     def backward(ctx, *grad_outputs):
         grad, = grad_outputs
-        #saved = ctx.saved_variables
         saved = ctx.saved_tensors
         xc = saved[0]  # centered input
         rTr = saved[1]  # trace of Sigma
