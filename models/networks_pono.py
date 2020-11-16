@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
-from nomalization import iterative_normalization
+from nomalization import iterative_normalization_2018
 
 
 ###############################################################################
@@ -30,7 +30,7 @@ def get_norm_layer(norm_type='instance', t=5):
     elif norm_type == 'instance':
         norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
     elif norm_type == 'iter_norm':
-        norm_layer = functools.partial(iterative_normalization.IterNorm, T=t)
+        norm_layer = functools.partial(iterative_normalization_2018.IterNorm, T=t)
     elif norm_type == 'none':
         def norm_layer(x): return Identity()
     else:
