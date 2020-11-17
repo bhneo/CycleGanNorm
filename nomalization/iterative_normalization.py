@@ -7,13 +7,13 @@ Reference:  Iterative Normalization: Beyond Standardization towards Efficient Wh
 import torch.nn
 from torch.nn import Parameter
 
-__all__ = ['iterative_normalization_FlexGroupSigma', 'IterNormSigma']
+__all__ = ['IterNormSigmaSingle', 'IterNormSigma']
 
 
-class iterative_normalization_py(torch.autograd.Function):
+class IterativeNormalization(torch.autograd.Function):
     @staticmethod
     def forward(ctx, *args, **kwargs):
-        X, running_mean, running_wmat, nc, ctx.T, eps, momentum, training = args
+        X, running_mean, running_wmat, nc, ctx.t, eps, momentum, training = args
         # change NxCxHxW to Dx(NxHxW), i.e., d*m
         ctx.g = X.size(1) // nc
         x = X.transpose(0, 1).contiguous().view(nc, -1)
@@ -26,21 +26,21 @@ class iterative_normalization_py(torch.autograd.Function):
         if training:
             running_mean.copy_(momentum * mean + (1. - momentum) * running_mean)
             # calculate covariance matrix
-            Sigma = torch.addmm(eps, torch.eye(d).to(X), 1. / m, xc, xc.transpose(0, 1))
-            running_wmat.copy_(momentum * Sigma + (1. - momentum) * running_wmat)
+            sigma = torch.addmm(eps, torch.eye(d).to(X), 1. / m, xc, xc.transpose(0, 1))
+            running_wmat.copy_(momentum * sigma + (1. - momentum) * running_wmat)
         else:
-            Sigma = running_wmat
+            sigma = running_wmat
         # reciprocal of trace of Sigma: shape [g, 1, 1]
-        P = [None] * (ctx.T + 1)
-        P[0] = torch.eye(d).to(X)
-        rTr = (Sigma * P[0]).sum((0, 1), keepdim=True).reciprocal_()
-        saved.append(rTr)
-        Sigma_N = Sigma * rTr
-        saved.append(Sigma_N)
-        for k in range(ctx.T):
-            P[k + 1] = torch.addmm(1.5, P[k], -0.5, torch.matrix_power(P[k], 3), Sigma_N)
-        saved.extend(P)
-        wm = P[ctx.T].mul_(rTr.sqrt())  # whiten matrix: the matrix inverse of Sigma, i.e., Sigma^{-1/2}
+        p = [None] * (ctx.t + 1)
+        p[0] = torch.eye(d).to(X)
+        r_t_r = (sigma * p[0]).sum((0, 1), keepdim=True).reciprocal_()
+        saved.append(r_t_r)
+        sigma_n = sigma * r_t_r
+        saved.append(sigma_n)
+        for k in range(ctx.t):
+            p[k+1] = torch.addmm(1.5, p[k], -0.5, torch.matrix_power(p[k], 3), sigma_n)
+        saved.extend(p)
+        wm = p[ctx.t].mul_(r_t_r.sqrt())  # whiten matrix: the matrix inverse of Sigma, i.e., Sigma^{-1/2}
         xn = wm.mm(xc)
         Xn = xn.view(X.size(1), X.size(0), *X.size()[2:]).transpose(0, 1).contiguous()
         ctx.save_for_backward(*saved)
@@ -51,14 +51,14 @@ class iterative_normalization_py(torch.autograd.Function):
         grad, = grad_outputs
         saved = ctx.saved_tensors
         xc = saved[0]  # centered input
-        rTr = saved[1]  # trace of Sigma
+        r_t_r = saved[1]  # trace of Sigma
         sn = saved[2].transpose(-2, -1)  # normalized Sigma
         P = saved[3:]  # middle result matrix,
         d, m = xc.size()
 
         g_ = grad.transpose(0, 1).contiguous().view_as(xc)
         g_wm = g_.mm(xc.transpose(-2, -1))
-        g_P = g_wm * rTr.sqrt()
+        g_P = g_wm * r_t_r.sqrt()
         wm = P[ctx.T]
         g_sn = 0
         for k in range(ctx.T, 1, -1):
@@ -72,19 +72,19 @@ class iterative_normalization_py(torch.autograd.Function):
         g_sn += g_P
         # g_sn = g_sn * rTr.sqrt()
         g_tr = ((-sn.mm(g_sn) + g_wm.transpose(-2, -1).mm(wm)) * P[0]).sum((0, 1), keepdim=True) * P[0]
-        g_sigma = (g_sn + g_sn.transpose(-2, -1) + 2. * g_tr) * (-0.5 / m * rTr)
+        g_sigma = (g_sn + g_sn.transpose(-2, -1) + 2. * g_tr) * (-0.5 / m * r_t_r)
         # g_sigma = g_sigma + g_sigma.transpose(-2, -1)
         g_x = torch.addmm(wm.mm(g_ - g_.mean(-1, keepdim=True)), g_sigma, xc)
         grad_input = g_x.view(grad.size(1), grad.size(0), *grad.size()[2:]).transpose(0, 1).contiguous()
         return grad_input, None, None, None, None, None, None, None
 
 
-class IterNormSigma_Single(torch.nn.Module):
-    def __init__(self, num_features, num_groups=1, num_channels=None, T=5, dim=4, eps=1e-5, momentum=0.1, affine=True,
+class IterNormSigmaSingle(torch.nn.Module):
+    def __init__(self, num_features, t=5, dim=4, eps=1e-5, momentum=0.1, affine=True,
                  *args, **kwargs):
-        super(IterNormSigma_Single, self).__init__()
+        super(IterNormSigmaSingle, self).__init__()
         # assert dim == 4, 'IterNormSigma is not support 2D'
-        self.T = T
+        self.t = t
         self.eps = eps
         self.momentum = momentum
         self.num_features = num_features
@@ -97,28 +97,28 @@ class IterNormSigma_Single(torch.nn.Module):
         # running whiten matrix
         self.register_buffer('running_wm', torch.eye(num_features))
 
-    def forward(self, X: torch.Tensor):
-        X_hat = iterative_normalization_py.apply(X, self.running_mean, self.running_wm, self.num_features, self.T,  self.eps, self.momentum, self.training)
-        return X_hat
+    def forward(self, inputs: torch.Tensor):
+        inputs_hat = IterativeNormalization.apply(inputs, self.running_mean, self.running_wm, self.num_features, self.t, self.eps, self.momentum, self.training)
+        return inputs_hat
 
 
 class IterNormSigma(torch.nn.Module):
-    def __init__(self, num_features, num_groups=1, num_channels=None, T=5, dim=4, eps=1e-5, momentum=0.1, affine=True,
+    def __init__(self, num_features, num_channels=None, t=5, dim=4, eps=1e-5, momentum=0.1, affine=True,
                  *args, **kwargs):
         super(IterNormSigma, self).__init__()
         # assert dim == 4, 'IterNormSigma is not support 2D'
-        self.T = T
+        self.t = t
         self.eps = eps
         self.momentum = momentum
         self.num_features = num_features
         self.num_channels = num_channels
         num_groups = (self.num_features-1) // self.num_channels + 1 
         self.num_groups = num_groups
-        self.iterNorm_Groups = torch.nn.ModuleList(
-            [IterNormSigma_Single(num_features = self.num_channels, eps=eps, momentum=momentum, T=T) for _ in range(self.num_groups-1)]
+        self.iter_norm_groups = torch.nn.ModuleList(
+            [IterNormSigmaSingle(num_features=self.num_channels, eps=eps, momentum=momentum, t=t) for _ in range(self.num_groups - 1)]
         )
-        num_channels_last=self.num_features - self.num_channels * (self.num_groups -1)
-        self.iterNorm_Groups.append(IterNormSigma_Single(num_features = num_channels_last, eps=eps, momentum=momentum, T=T))
+        num_channels_last = self.num_features - self.num_channels * (self.num_groups-1)
+        self.iter_norm_groups.append(IterNormSigmaSingle(num_features=num_channels_last, eps=eps, momentum=momentum, t=t))
          
         self.affine = affine
         self.dim = dim
@@ -138,18 +138,18 @@ class IterNormSigma(torch.nn.Module):
             torch.nn.init.ones_(self.weight)
             torch.nn.init.zeros_(self.bias)
 
-    def forward(self, X: torch.Tensor):
-        X_splits = torch.split(X, self.num_channels, dim=1)
-        X_hat_splits = []
+    def forward(self, inputs: torch.Tensor):
+        inputs_splits = torch.split(inputs, self.num_channels, dim=1)
+        inputs_hat_splits = []
         for i in range(self.num_groups):
-            X_hat_tmp = self.iterNorm_Groups[i](X_splits[i])
-            X_hat_splits.append(X_hat_tmp)
-        X_hat = torch.cat(X_hat_splits, dim=1)
+            inputs_hat_tmp = self.iter_norm_groups[i](inputs_splits[i])
+            inputs_hat_splits.append(inputs_hat_tmp)
+        inputs_hat = torch.cat(inputs_hat_splits, dim=1)
         # affine
         if self.affine:
-            return X_hat * self.weight + self.bias
+            return inputs_hat * self.weight + self.bias
         else:
-            return X_hat
+            return inputs_hat
 
     def extra_repr(self):
         return '{num_features}, num_channels={num_channels}, T={T}, eps={eps}, ' \
