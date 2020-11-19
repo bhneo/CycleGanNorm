@@ -15,7 +15,6 @@ class IterativeNormalization(torch.autograd.Function):
     def forward(ctx, *args, **kwargs):
         X, running_mean, running_wmat, nc, ctx.t, eps, momentum, training = args
         # change NxCxHxW to Dx(NxHxW), i.e., d*m
-        ctx.g = X.size(1) // nc
         x = X.transpose(0, 1).contiguous().view(nc, -1)
         d, m = x.size()
         saved = []
@@ -112,8 +111,7 @@ class IterNormSigma(torch.nn.Module):
         self.momentum = momentum
         self.num_features = num_features
         self.num_channels = num_channels
-        num_groups = (self.num_features-1) // self.num_channels + 1 
-        self.num_groups = num_groups
+        self.num_groups = (self.num_features-1) // self.num_channels + 1
         self.iter_norm_groups = torch.nn.ModuleList(
             [IterNormSigmaSingle(num_features=self.num_channels, eps=eps, momentum=momentum, t=t) for _ in range(self.num_groups - 1)]
         )
