@@ -13,7 +13,7 @@ __all__ = ['IterNormSigmaSingle', 'IterNormSigma']
 class IterativeNormalization(torch.autograd.Function):
     @staticmethod
     def forward(ctx, *args, **kwargs):
-        X, running_mean, running_wmat, nc, ctx.t, eps, momentum, training = args
+        X, running_mean, running_wmat, nc, ctx.t, eps, momentum, training, by_instance = args
         # change NxCxHxW to Dx(NxHxW), i.e., d*m
         x = X.transpose(0, 1).contiguous().view(nc, -1)
         d, m = x.size()
@@ -79,7 +79,7 @@ class IterativeNormalization(torch.autograd.Function):
 
 
 class IterNormSigmaSingle(torch.nn.Module):
-    def __init__(self, num_features, t=5, dim=4, eps=1e-5, momentum=0.1, affine=True,
+    def __init__(self, num_features, t=5, dim=4, eps=1e-5, momentum=0.1, affine=True, by_instance=False,
                  *args, **kwargs):
         super(IterNormSigmaSingle, self).__init__()
         # assert dim == 4, 'IterNormSigma is not support 2D'
@@ -89,6 +89,7 @@ class IterNormSigmaSingle(torch.nn.Module):
         self.num_features = num_features
         self.affine = affine
         self.dim = dim
+        self.by_instance = by_instance
         shape = [1] * dim
         shape[1] = self.num_features
 
@@ -97,12 +98,22 @@ class IterNormSigmaSingle(torch.nn.Module):
         self.register_buffer('running_wm', torch.eye(num_features))
 
     def forward(self, inputs: torch.Tensor):
-        inputs_hat = IterativeNormalization.apply(inputs, self.running_mean, self.running_wm, self.num_features, self.t, self.eps, self.momentum, self.training)
+        inputs_hat = IterativeNormalization.apply(inputs,
+                                                  self.running_mean,
+                                                  self.running_wm,
+                                                  self.num_features,
+                                                  self.t,
+                                                  self.eps,
+                                                  self.momentum,
+                                                  self.training,
+                                                  self.by_instance)
         return inputs_hat
 
 
 class IterNormSigma(torch.nn.Module):
-    def __init__(self, num_features, num_channels=None, t=5, dim=4, eps=1e-5, momentum=0.1, affine=True,
+    def __init__(self, num_features, num_channels=None,
+                 t=5, dim=4, eps=1e-5, momentum=0.1,
+                 affine=True, by_instance=False,
                  *args, **kwargs):
         super(IterNormSigma, self).__init__()
         # assert dim == 4, 'IterNormSigma is not support 2D'
@@ -116,7 +127,11 @@ class IterNormSigma(torch.nn.Module):
             [IterNormSigmaSingle(num_features=self.num_channels, eps=eps, momentum=momentum, t=t) for _ in range(self.num_groups - 1)]
         )
         num_channels_last = self.num_features - self.num_channels * (self.num_groups-1)
-        self.iter_norm_groups.append(IterNormSigmaSingle(num_features=num_channels_last, eps=eps, momentum=momentum, t=t))
+        self.iter_norm_groups.append(IterNormSigmaSingle(num_features=num_channels_last,
+                                                         eps=eps,
+                                                         momentum=momentum,
+                                                         t=t,
+                                                         by_instance=by_instance))
          
         self.affine = affine
         self.dim = dim
