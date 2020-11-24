@@ -14,14 +14,16 @@ class IterativeNormalization(torch.autograd.Function):
     @staticmethod
     def forward(ctx, *args, **kwargs):
         X, running_mean, running_wmat, nc, ctx.t, eps, momentum, training, by_instance = args
-        # change NxCxHxW to Dx(NxHxW), i.e., d*m
-        x = X.transpose(0, 1).contiguous().view(nc, -1)
+        if by_instance:
+            # change NxCxHxW to (NxD)x(HxW), i.e., d*m
+            x = X.view(X.size(0)*nc, -1)
+        else:
+            # change NxCxHxW to Dx(NxHxW), i.e., d*m
+            x = X.transpose(0, 1).contiguous().view(nc, -1)
         d, m = x.size()
-        saved = []
         # calculate centered activation by subtracted mini-batch mean
         mean = x.mean(-1, keepdim=True) if training else running_mean
         xc = x - mean
-        saved.append(xc)
         if training:
             running_mean.copy_(momentum * mean + (1. - momentum) * running_mean)
             # calculate covariance matrix
@@ -33,49 +35,18 @@ class IterativeNormalization(torch.autograd.Function):
         p = [None] * (ctx.t + 1)
         p[0] = torch.eye(d).to(X)
         r_t_r = (sigma * p[0]).sum((0, 1), keepdim=True).reciprocal_()
-        saved.append(r_t_r)
         sigma_n = sigma * r_t_r
-        saved.append(sigma_n)
         for k in range(ctx.t):
             p[k+1] = torch.addmm(1.5, p[k], -0.5, torch.matrix_power(p[k], 3), sigma_n)
-        saved.extend(p)
+
         wm = p[ctx.t].mul_(r_t_r.sqrt())  # whiten matrix: the matrix inverse of Sigma, i.e., Sigma^{-1/2}
         xn = wm.mm(xc)
-        Xn = xn.view(X.size(1), X.size(0), *X.size()[2:]).transpose(0, 1).contiguous()
-        ctx.save_for_backward(*saved)
+        if by_instance:
+            # change (NxD)x(HxW) to NxCxHxW
+            Xn = xn.view(X.size(0), X.size(1), *X.size()[2:])
+        else:
+            Xn = xn.view(X.size(1), X.size(0), *X.size()[2:]).transpose(0, 1).contiguous()
         return Xn
-
-    @staticmethod
-    def backward(ctx, *grad_outputs):
-        grad, = grad_outputs
-        saved = ctx.saved_tensors
-        xc = saved[0]  # centered input
-        r_t_r = saved[1]  # trace of Sigma
-        sn = saved[2].transpose(-2, -1)  # normalized Sigma
-        P = saved[3:]  # middle result matrix,
-        d, m = xc.size()
-
-        g_ = grad.transpose(0, 1).contiguous().view_as(xc)
-        g_wm = g_.mm(xc.transpose(-2, -1))
-        g_P = g_wm * r_t_r.sqrt()
-        wm = P[ctx.T]
-        g_sn = 0
-        for k in range(ctx.T, 1, -1):
-            P[k - 1].transpose_(-2, -1)
-            P2 = P[k - 1].mm(P[k - 1])
-            g_sn += P2.mm(P[k - 1]).mm(g_P)
-            g_tmp = g_P.mm(sn)
-            g_P.addmm_(1.5, -0.5, g_tmp, P2)
-            g_P.addmm_(1, -0.5, P2, g_tmp)
-            g_P.addmm_(1, -0.5, P[k - 1].mm(g_tmp), P[k - 1])
-        g_sn += g_P
-        # g_sn = g_sn * rTr.sqrt()
-        g_tr = ((-sn.mm(g_sn) + g_wm.transpose(-2, -1).mm(wm)) * P[0]).sum((0, 1), keepdim=True) * P[0]
-        g_sigma = (g_sn + g_sn.transpose(-2, -1) + 2. * g_tr) * (-0.5 / m * r_t_r)
-        # g_sigma = g_sigma + g_sigma.transpose(-2, -1)
-        g_x = torch.addmm(wm.mm(g_ - g_.mean(-1, keepdim=True)), g_sigma, xc)
-        grad_input = g_x.view(grad.size(1), grad.size(0), *grad.size()[2:]).transpose(0, 1).contiguous()
-        return grad_input, None, None, None, None, None, None, None
 
 
 class IterNormSigmaSingle(torch.nn.Module):
