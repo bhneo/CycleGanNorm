@@ -4,11 +4,12 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
+import matplotlib.pyplot as plt
 import torch
 # from torch.autograd import Variable
 
-from lpips.trainer import *
-from lpips.lpips import *
+from trainer import *
+from lpips import *
 
 # class PerceptualLoss(torch.nn.Module):
 #     def __init__(self, model='lpips', net='alex', spatial=False, use_gpu=False, gpu_ids=[0], version='0.1'): # VGG using our perceptually-learned weights (LPIPS metric)

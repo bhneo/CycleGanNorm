@@ -248,6 +248,8 @@ def calculate_fid_given_paths(paths, batch_size, device, dims):
     return fid_value
 
 
+
+
 def main():
     args = parser.parse_args()
 
