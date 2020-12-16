@@ -8,7 +8,7 @@ from collections import OrderedDict
 from torch.autograd import Variable
 from scipy.ndimage import zoom
 from tqdm import tqdm
-import lpips
+import lpips_score
 import os
 
 
@@ -46,16 +46,16 @@ class Trainer():
         self.model_name = '%s [%s]'%(model,net)
 
         if(self.model == 'lpips'): # pretrained net + linear layer
-            self.net = lpips.LPIPS(pretrained=not is_train, net=net, version=version, lpips=True, spatial=spatial, 
-                pnet_rand=pnet_rand, pnet_tune=pnet_tune, 
-                use_dropout=True, model_path=model_path, eval_mode=False)
+            self.net = lpips_score.LPIPS(pretrained=not is_train, net=net, version=version, lpips=True, spatial=spatial,
+                                         pnet_rand=pnet_rand, pnet_tune=pnet_tune,
+                                         use_dropout=True, model_path=model_path, eval_mode=False)
         elif(self.model=='baseline'): # pretrained network
-            self.net = lpips.LPIPS(pnet_rand=pnet_rand, net=net, lpips=False)
+            self.net = lpips_score.LPIPS(pnet_rand=pnet_rand, net=net, lpips=False)
         elif(self.model in ['L2','l2']):
-            self.net = lpips.L2(use_gpu=use_gpu,colorspace=colorspace) # not really a network, only for testing
+            self.net = lpips_score.L2(use_gpu=use_gpu, colorspace=colorspace) # not really a network, only for testing
             self.model_name = 'L2'
         elif(self.model in ['DSSIM','dssim','SSIM','ssim']):
-            self.net = lpips.DSSIM(use_gpu=use_gpu,colorspace=colorspace)
+            self.net = lpips_score.DSSIM(use_gpu=use_gpu, colorspace=colorspace)
             self.model_name = 'SSIM'
         else:
             raise ValueError("Model [%s] not recognized." % self.model)
@@ -64,7 +64,7 @@ class Trainer():
 
         if self.is_train: # training mode
             # extra network on top to go from distances (d0,d1) => predicted human judgment (h*)
-            self.rankLoss = lpips.BCERankingLoss()
+            self.rankLoss = lpips_score.BCERankingLoss()
             self.parameters += list(self.rankLoss.net.parameters())
             self.lr = lr
             self.old_lr = lr
@@ -80,7 +80,7 @@ class Trainer():
 
         if(printNet):
             print('---------- Networks initialized -------------')
-            networks.print_network(self.net)
+            lpips_score.print_network(self.net)
             print('-----------------------------------------------')
 
     def forward(self, in0, in1, retPerLayer=False):
@@ -154,9 +154,9 @@ class Trainer():
     def get_current_visuals(self):
         zoom_factor = 256/self.var_ref.data.size()[2]
 
-        ref_img = lpips.tensor2im(self.var_ref.data)
-        p0_img = lpips.tensor2im(self.var_p0.data)
-        p1_img = lpips.tensor2im(self.var_p1.data)
+        ref_img = lpips_score.tensor2im(self.var_ref.data)
+        p0_img = lpips_score.tensor2im(self.var_p0.data)
+        p1_img = lpips_score.tensor2im(self.var_p1.data)
 
         ref_img_vis = zoom(ref_img,[zoom_factor, zoom_factor, 1],order=0)
         p0_img_vis = zoom(p0_img,[zoom_factor, zoom_factor, 1],order=0)
@@ -275,6 +275,6 @@ def score_jnd_dataset(data_loader, func, name=''):
 
     precs = TPs/(TPs+FPs)
     recs = TPs/(TPs+FNs)
-    score = lpips.voc_ap(recs,precs)
+    score = lpips_score.voc_ap(recs, precs)
 
     return(score, dict(ds=ds,sames=sames))

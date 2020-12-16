@@ -9,7 +9,7 @@ import torch
 # from torch.autograd import Variable
 
 from trainer import *
-from lpips import *
+from lpips_score import *
 
 # class PerceptualLoss(torch.nn.Module):
 #     def __init__(self, model='lpips', net='alex', spatial=False, use_gpu=False, gpu_ids=[0], version='0.1'): # VGG using our perceptually-learned weights (LPIPS metric)
